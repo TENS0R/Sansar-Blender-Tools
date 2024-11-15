@@ -25,8 +25,8 @@
 bl_info = {
     "name": "Sansar Vertex Animation",
     "author": "Tensor",
-    "version": (1, 2),
-    "blender": (4, 0, 1),
+    "version": (1, 3),
+    "blender": (4, 2, 0),
     "location": "View3D > Sidebar > Sansar Tools Tab",
     "description": "A tool for storing per frame vertex data for use in Sansar VAT shader.",
     "warning": "",
@@ -73,8 +73,22 @@ def split_edges_by_normal(obj, angle_threshold=0.1, triangulate=True):
     # We also need the mesh (object mode) because in bmesh we don't have the 
     # splitted normals available, see
     # https://blender.stackexchange.com/questions/249611/how-to-get-split-normal-of-selected-vertex-in-python
+
     me = obj.data
-    me.calc_normals_split()
+
+    # calc_normals_split was removed in Blender 4.2, see
+    # https://developer.blender.org/docs/release_notes/4.1/python_api/#mesh    
+    if bpy.app.version_string[0]=='4':
+        getNormal = lambda idx : me.corner_normals[idx].vector
+    else:
+        me.calc_normals_split()
+        getNormal = lambda idx : me.loops[idx].normal
+        
+    # Check if bpy.app.version_string starts with "4", if so
+    # then don't use me.calc_normals_split() and below
+    # replace me.loops[..].normal by
+    # me.corner_normals[..].vector
+    
 
     # Iterate over all vertices
     for edge in bm.edges:
@@ -102,8 +116,9 @@ def split_edges_by_normal(obj, angle_threshold=0.1, triangulate=True):
                         break
 
                 # Compare the normals of the two loops
-                normal1 = me.loops[loop1.index].normal # calc_normal()
-                normal2 = me.loops[loop2.index].normal # calc_normal()
+                
+                normal1 = getNormal(loop1.index) # me.loops[loop1.index].normal # calc_normal()
+                normal2 = getNormal(loop2.index) # me.loops[loop2.index].normal # calc_normal()
 
                 if normal1.angle(normal2) > 1e-5:  # Small threshold for float precision
                     issharp = True
@@ -234,7 +249,8 @@ def get_vertex_data(data, meshes, vertex_count, frame_count):
                     quat = mathutils.Quaternion((1, 0, 0, 0))  
 
 
-            normals[start_of_frame+l.vertex_index] = (quat.x, quat.y, quat.z, 1) # w has to be reconstructed from xyz
+            # normals[start_of_frame+l.vertex_index] = (quat.x, quat.y, quat.z, 1) # w has to be reconstructed from xyz
+            normals[start_of_frame+l.vertex_index] = (quat.x, quat.y, quat.z, quat.w)
 
         start_of_frame += len(me.vertices)
         wm.progress_update(start_of_frame)
@@ -304,7 +320,8 @@ def exportImage(my_image, output_path):
     image_settings.color_mode = 'RGBA'  # Set to RGBA
     image_settings.color_depth = '16'
     image_settings.exr_codec = 'ZIP'
-    image_settings.view_settings.view_transform = 'Raw'  # Set to Raw to treat image as non-color data
+    image_settings.view_settings.view_transform = 'Raw'  
+
 
     my_image.save_render(output_path) # save to desination
 
@@ -511,7 +528,7 @@ class OBJECT_OT_ProcessAnimMeshes(bpy.types.Operator):
         texture_size = imageWidth, imageHeight
         offset_texture, normal_texture = bake_vertex_data(data, offsets, normals, texture_size)
         if bpy.context.scene.Sansar_VAT_do_file_export:
-            exportImage(offset_texture, bpy.context.scene.Sansar_VAT_export_folder+bpy.context.scene.Sansar_VAT_export_file+'_offset.exr')
+            exportImage(offset_texture, bpy.context.scene.Sansar_VAT_export_folder+bpy.context.scene.Sansar_VAT_export_file+'_map.exr')
             exportImage(normal_texture, bpy.context.scene.Sansar_VAT_export_folder+bpy.context.scene.Sansar_VAT_export_file+'_normal.exr')
             if bpy.context.scene.Sansar_VAT_gen_mesh:
                 exportMesh(export_mesh, bpy.context.scene.Sansar_VAT_export_folder+bpy.context.scene.Sansar_VAT_export_file+'_mesh.fbx')
