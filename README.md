@@ -1,6 +1,13 @@
 # Sansar-Blender-Tools
 Blender Tools for Creating [Sansar](https://sansar.com/) Assets
 
+Sections covered below:
+- [Installation](#installation)
+- [Usage](#usage)
+- [Output](#output)
+- [Texture Format](#texture-format)
+- [Mesh Format](#mesh-format)
+- [Credits](#credits)
 
 ## Installation
 To install the addon, just download the zip file attached to the [latest release](https://github.com/TENS0R/Sansar-Blender-Tools/releases/latest), and install it as a regular blender addon (User Preferences -> Addons -> Install from file).
@@ -50,7 +57,7 @@ header.B = frame_count - 2048
 ### Vertex Displacement
 The displacement of a vertex at one frame is given by the Red, Green and Blue channel of the corresponding pixel, whereas the color channels directly correspond to the x,y,z displacement, respectively, given in object coordinates.
 
-## Normal Rotation
+### Normal Rotation
 The rotation of the normal vector (better said the rotation of the tangent space) is specified for each vertex in a separate texture (VAT_normal.exr). Here the Red, Green, Blue and Alpha channel correspond to the x, y, z and w of a rotation quaternion, respectively. 
 
 ## Mesh Format
