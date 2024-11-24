@@ -25,7 +25,7 @@
 bl_info = {
     "name": "Sansar Vertex Animation",
     "author": "Tensor",
-    "version": (1, 3),
+    "version": (1, 4),
     "blender": (4, 2, 0),
     "location": "View3D > Sidebar > Sansar Tools Tab",
     "description": "A tool for storing per frame vertex data for use in Sansar VAT shader.",
@@ -41,6 +41,8 @@ import math
 import numpy as np
 import mathutils
 import sys
+from bpy.types import AddonPreferences, Panel
+from bpy.props import StringProperty
 
 imageWidthGranularity = 32
 imageHeightGranularity = 32
@@ -203,8 +205,7 @@ def get_vertex_data(data, meshes, vertex_count, frame_count):
     vertex_count_LSH = (vertex_count % 2048) - 2048 
     frame_count_MSH = (frame_count // 2048) - 2048
     frame_count_LSH = (frame_count % 2048) - 2048 
-    # offsets.extend((vertex_count_MSH, vertex_count_LSH, frame_count_MSH, frame_count_LSH))
-    # normals.extend((vertex_count_MSH, vertex_count_LSH, frame_count_MSH, frame_count_LSH))
+
     offsets[0] = (vertex_count_MSH, vertex_count_LSH, frame_count_LSH, 1)
     normals[0] = (vertex_count_MSH, vertex_count_LSH, frame_count_LSH, 1)
 
@@ -223,8 +224,6 @@ def get_vertex_data(data, meshes, vertex_count, frame_count):
         for l in me.loops:
             l0 = originalL[l.index]
 
-            # offset = me.vertices[l.vertex_index].co - original[l0.vertex_index].co
-            # offsets[start_of_frame+l.vertex_index] = (*offset, 1)
 
             if 1:
                 N0 = l0.normal.normalized()
@@ -249,7 +248,6 @@ def get_vertex_data(data, meshes, vertex_count, frame_count):
                     quat = mathutils.Quaternion((1, 0, 0, 0))  
 
 
-            # normals[start_of_frame+l.vertex_index] = (quat.x, quat.y, quat.z, 1) # w has to be reconstructed from xyz
             normals[start_of_frame+l.vertex_index] = (quat.x, quat.y, quat.z, quat.w)
 
         start_of_frame += len(me.vertices)
@@ -428,10 +426,7 @@ class OBJECT_OT_ProcessAnimMeshes(bpy.types.Operator):
         return ob and ob.type == 'MESH' and ob.mode == 'OBJECT'
 
     def execute(self, context):
-        units = context.scene.unit_settings
         data = bpy.data
-
-        #objects = [ob for ob in context.selected_objects if ob.type == 'MESH']
 
         objects = []
         for obj in context.selected_objects:
@@ -481,7 +476,7 @@ class OBJECT_OT_ProcessAnimMeshes(bpy.types.Operator):
         cleanup(objects)    
 
         # Export mesh of first frame as reference
-        if bpy.context.scene.Sansar_VAT_gen_mesh:
+        if bpy.context.scene.sansar_vat_settings.gen_mesh:
             export_mesh_data = meshes[0].copy()
             export_mesh = create_export_mesh_object(context, data, export_mesh_data)
 
@@ -489,7 +484,7 @@ class OBJECT_OT_ProcessAnimMeshes(bpy.types.Operator):
         offsets, normals = get_vertex_data(data, meshes, vertex_count, frame_count)
         num_elements = len(offsets) // 4  # Total number of pixels
 
-        if bpy.context.scene.Sansar_VAT_zcurve:
+        if bpy.context.scene.sansar_vat_settings.zcurve:
             wm = bpy.context.window_manager
             wm.progress_begin(0,num_elements)
 
@@ -527,11 +522,15 @@ class OBJECT_OT_ProcessAnimMeshes(bpy.types.Operator):
         # Write images
         texture_size = imageWidth, imageHeight
         offset_texture, normal_texture = bake_vertex_data(data, offsets, normals, texture_size)
-        if bpy.context.scene.Sansar_VAT_do_file_export:
-            exportImage(offset_texture, bpy.context.scene.Sansar_VAT_export_folder+bpy.context.scene.Sansar_VAT_export_file+'_map.exr')
-            exportImage(normal_texture, bpy.context.scene.Sansar_VAT_export_folder+bpy.context.scene.Sansar_VAT_export_file+'_normal.exr')
-            if bpy.context.scene.Sansar_VAT_gen_mesh:
-                exportMesh(export_mesh, bpy.context.scene.Sansar_VAT_export_folder+bpy.context.scene.Sansar_VAT_export_file+'_mesh.fbx')
+        if bpy.context.scene.sansar_vat_settings.do_file_export:
+            exportImage(offset_texture, bpy.context.scene.sansar_vat_settings.export_folder+bpy.context.scene.sansar_vat_settings.export_file+'_map.exr')
+            exportImage(normal_texture, bpy.context.scene.sansar_vat_settings.export_folder+bpy.context.scene.sansar_vat_settings.export_file+'_normal.exr')
+            if bpy.context.scene.sansar_vat_settings.gen_mesh:
+                exportMesh(export_mesh, bpy.context.scene.sansar_vat_settings.export_folder+bpy.context.scene.sansar_vat_settings.export_file+'_mesh.fbx')
+            exportTarget = bpy.path.abspath(bpy.context.scene.sansar_vat_settings.export_folder+bpy.context.scene.sansar_vat_settings.export_file)
+            exportTarget = exportTarget.replace("\\", "/")+"*"
+            self.report({'INFO'}, f"Exported VAT files to {exportTarget}")
+            print(f"Exported VAT files to {exportTarget}")
 
         
         
@@ -540,75 +539,109 @@ class OBJECT_OT_ProcessAnimMeshes(bpy.types.Operator):
 
 class VIEW3D_PT_VertexAnimation(bpy.types.Panel):
     """Creates a Panel in 3D Viewport"""
-    bl_label = "Vertex Animation"
+    bl_label = "Sansar VAT"
     bl_idname = "VIEW3D_PT_vertex_animation"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
-    bl_category = "Sansar Tools"
+    #bl_category = "Sansar Tools"
+
+    @classmethod
+    def get_sidebar_category(cls):
+        # Retrieve the custom category name from preferences
+        prefs = bpy.context.preferences.addons[__name__].preferences
+        return prefs.sidebar_category
+
+    @classmethod
+    def register(cls):
+        cls.bl_category = cls.get_sidebar_category()
+
+    @classmethod
+    def unregister(cls):
+        pass
 
     def draw(self, context):
         layout = self.layout
         layout.use_property_split = True
         layout.use_property_decorate = False
         scene = context.scene
-        col = layout.column(align=True)
-        col.label(text="Frame Range:")  # Adding a header label
-        col.prop(scene, "frame_start", text="Start")
-        col.prop(scene, "frame_end", text="End")
-        col.prop(scene, "frame_step", text="Step")
-        layout.use_property_split = False
-        row = layout.row()
-        row.prop(scene, "Sansar_VAT_gen_mesh")
-        row = layout.row()
-        row.prop(scene, "Sansar_VAT_zcurve")
-        row = layout.row()
-        row.prop(scene, "Sansar_VAT_do_file_export")
-        layout.use_property_split = True
-        if bpy.context.scene.Sansar_VAT_do_file_export:
-            col = layout.column(align=True)
-            col.prop(scene, "Sansar_VAT_export_folder")
-            col.prop(scene, "Sansar_VAT_export_file")
-        layout.use_property_split = False
-        row = layout.row()
-        row.operator("object.process_anim_meshes")
+        #col = layout.column(align=True)
+        layout.label(text="Frame Range:")  
+        layout.prop(scene, "frame_start", text="Start")
+        layout.prop(scene, "frame_end", text="End")
+        layout.prop(scene, "frame_step", text="Step")
+        
+        layout.prop(scene.sansar_vat_settings, "gen_mesh")
+        layout.prop(scene.sansar_vat_settings, "zcurve")
+        layout.prop(scene.sansar_vat_settings, "do_file_export")
+        
+        if bpy.context.scene.sansar_vat_settings.do_file_export:
+            layout = layout.column(align=True)
+            layout.prop(scene.sansar_vat_settings, "export_folder")
+            layout.prop(scene.sansar_vat_settings, "export_file")
+        
+        layout.operator("object.process_anim_meshes")
 
+def update_sidebar_category(self, context):
+    bpy.utils.unregister_class(VIEW3D_PT_VertexAnimation)
+    VIEW3D_PT_VertexAnimation.bl_category = self.sidebar_category
+    bpy.utils.register_class(VIEW3D_PT_VertexAnimation)
 
+class SansarVATAddonPreferences(AddonPreferences):
+    bl_idname = __name__
 
-def register():
-    bpy.types.Scene.Sansar_VAT_export_folder = bpy.props.StringProperty(
+    sidebar_category: StringProperty(
+        name="Sidebar Category",
+        description="Name of the sidebar category where the panel will appear",
+        default="Sansar VAT",
+        update=update_sidebar_category    # Save preferences automatically
+    ) # type: ignore
+
+    def draw(self, context):
+        layout = self.layout
+        layout.prop(self, "sidebar_category")
+
+    @classmethod
+    def register(cls):
+        VIEW3D_PT_VertexAnimation.bl_category = "Sansar VAT"
+
+class SansarVATSettings(bpy.types.PropertyGroup):
+    export_folder: bpy.props.StringProperty(
         name="Export Path",
         description="Path to an export directory",
         subtype='DIR_PATH',
         default='//export/'
-    )
-    bpy.types.Scene.Sansar_VAT_export_file = bpy.props.StringProperty(
-        name='Filename',
-        default='VAT',
-    )
-    bpy.types.Scene.Sansar_VAT_gen_mesh = bpy.props.BoolProperty(
-        name='Generate mesh',
+    ) # type: ignore
+    export_file: bpy.props.StringProperty(
+        name="Filename",
+        default="VAT",
+    ) # type: ignore
+    gen_mesh: bpy.props.BoolProperty(
+        name="Generate Mesh",
         default=True,
-    )
-    bpy.types.Scene.Sansar_VAT_do_file_export = bpy.props.BoolProperty(
-        name='Export files',
+    ) # type: ignore
+    do_file_export: bpy.props.BoolProperty(
+        name="Export Files",
         default=True,
-    )
-    bpy.types.Scene.Sansar_VAT_zcurve = bpy.props.BoolProperty(
-        name='Encode Map as Z-Curve',
+    ) # type: ignore
+    zcurve: bpy.props.BoolProperty(
+        name="Encode Map as Z-Curve",
         default=True,
-    )
-    bpy.utils.register_class(OBJECT_OT_ProcessAnimMeshes)
-    bpy.utils.register_class(VIEW3D_PT_VertexAnimation)
+    ) # type: ignore
     
 
+def register():
+    bpy.utils.register_class(SansarVATAddonPreferences)
+    bpy.utils.register_class(SansarVATSettings)
+    bpy.types.Scene.sansar_vat_settings = bpy.props.PointerProperty(type=SansarVATSettings)
+    bpy.utils.register_class(OBJECT_OT_ProcessAnimMeshes)
+    bpy.utils.register_class(VIEW3D_PT_VertexAnimation)
 
 def unregister():
-    del bpy.types.Scene.Sansar_VAT_export_folder
-    del bpy.types.Scene.Sansar_VAT_export_file
-    del bpy.types.Scene.Sansar_VAT_gen_mesh
+    del bpy.types.Scene.sansar_vat_settings
+    bpy.utils.unregister_class(SansarVATSettings)
     bpy.utils.unregister_class(OBJECT_OT_ProcessAnimMeshes)
     bpy.utils.unregister_class(VIEW3D_PT_VertexAnimation)
-
+    bpy.utils.unregister_class(SansarVATAddonPreferences)
 
 if __name__ == "__main__":
     register()
