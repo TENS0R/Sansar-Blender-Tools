@@ -1,6 +1,6 @@
 schema_version = "1.0.0"
 id = "sansar_tools_vat"
-version = "1.4.0"
+version = "1.5.0"
 name = "Sansar Tools - VAT Generator"
 tagline = "Add-on to generate Vertex Animated Textures for Sansar"
 maintainer = "Tensor"

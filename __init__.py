@@ -25,7 +25,7 @@
 bl_info = {
     "name": "Sansar Vertex Animation",
     "author": "Tensor",
-    "version": (1, 4),
+    "version": (1, 5),
     "blender": (4, 2, 0),
     "location": "View3D > Sidebar > Sansar Tools Tab",
     "description": "A tool for storing per frame vertex data for use in Sansar VAT shader.",
@@ -470,7 +470,7 @@ class OBJECT_OT_ProcessAnimMeshes(bpy.types.Operator):
 
         for ob in objects:
             for mod in ob.modifiers:
-                if mod.type not in self.allowed_modifiers:
+                if mod.type not in self.allowed_modifiers and mod.name not in ['Auto Smooth']:
                     cleanup(objects)  
                     self.report(
                         {'ERROR'},
