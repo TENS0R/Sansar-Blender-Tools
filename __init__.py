@@ -80,7 +80,7 @@ def split_edges_by_normal(obj, angle_threshold=0.1, triangulate=True):
 
     # calc_normals_split was removed in Blender 4.2, see
     # https://developer.blender.org/docs/release_notes/4.1/python_api/#mesh    
-    if bpy.app.version_string[0]=='4':
+    if bpy.app.version >= (4, 2, 0):
         getNormal = lambda idx : me.corner_normals[idx].vector
     else:
         me.calc_normals_split()
@@ -151,6 +151,15 @@ def get_per_frame_mesh_data(context, data, objects):
     """Return a list of combined mesh data per frame"""
     meshes = []
     curFrame = context.scene.frame_current
+
+    # Precompute combined materials and offsets per object.
+    combined_materials = []
+    offsets = {}
+    for ob in objects:
+        offsets[ob.name] = len(combined_materials)
+        for mat in ob.data.materials:
+            combined_materials.append(mat)
+
     for i in frame_range(context.scene):
         context.scene.frame_set(i)
         depsgraph = context.evaluated_depsgraph_get()
@@ -159,7 +168,18 @@ def get_per_frame_mesh_data(context, data, objects):
             eval_object = ob.evaluated_get(depsgraph)
             me = data.meshes.new_from_object(eval_object)
             me.transform(ob.matrix_world)
+
+            # Correct material index
+            offset = offsets.get(ob.name, 0)
+            face_count_before = len(bm.faces) # Record current face count before adding new geometry.
+
             bm.from_mesh(me)
+
+            # Adjust the material indices of newly added faces.
+            new_faces = list(bm.faces)[face_count_before:]
+            for face in new_faces:
+                face.material_index += offset
+
             data.meshes.remove(me)
         me = data.meshes.new('frame_{:03d}'.format(i))
         bm.normal_update()
@@ -171,7 +191,7 @@ def get_per_frame_mesh_data(context, data, objects):
     return meshes
 
 
-def create_export_mesh_object(context, data, me):
+def create_export_mesh_object(context, data, me, ref_objects):
     """Return a mesh object with correct UVs"""
     while len(me.uv_layers) < 2:
         me.uv_layers.new()
@@ -186,7 +206,15 @@ def create_export_mesh_object(context, data, me):
             vertIdx_LSH, vertIdx_MSH
         )
     ob = data.objects.new("export_mesh", me)
+
     context.scene.collection.objects.link(ob)
+
+    # Copy materials from each reference object into the new object's mesh
+    for ref_obj in ref_objects:
+        for mat in ref_obj.data.materials:
+            if mat is not None:
+                ob.data.materials.append(mat)
+
     return ob
 
 
@@ -473,12 +501,13 @@ class OBJECT_OT_ProcessAnimMeshes(bpy.types.Operator):
 
         # Capture animation in terms of individual meshes
         meshes = get_per_frame_mesh_data(context, data, objects)
-        cleanup(objects)    
-
+         
         # Export mesh of first frame as reference
         if bpy.context.scene.sansar_vat_settings.gen_mesh:
             export_mesh_data = meshes[0].copy()
-            export_mesh = create_export_mesh_object(context, data, export_mesh_data)
+            export_mesh = create_export_mesh_object(context, data, export_mesh_data, objects)
+
+        cleanup(objects)   
 
         # Create VAT as linear array
         offsets, normals = get_vertex_data(data, meshes, vertex_count, frame_count)
