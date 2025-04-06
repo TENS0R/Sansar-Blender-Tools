@@ -218,7 +218,7 @@ def create_export_mesh_object(context, data, me, ref_objects):
     return ob
 
 
-def get_vertex_data(data, meshes, vertex_count, frame_count):
+def get_vertex_data(data, meshes, vertex_count, frame_count, yup_flag):
     """Return lists of vertex offsets and normals from a list of mesh data"""
     # meshes[0].calc_normals_split()
     meshes[0].calc_tangents()
@@ -237,6 +237,14 @@ def get_vertex_data(data, meshes, vertex_count, frame_count):
     offsets[0] = (vertex_count_MSH, vertex_count_LSH, frame_count_LSH, 1)
     normals[0] = (vertex_count_MSH, vertex_count_LSH, frame_count_LSH, 1)
 
+    # Rotation matrix from (-Y forward, Z up) to (-Z forward, Y up)
+    R = mathutils.Matrix((
+        (-1, 0, 0),
+        ( 0, 0, 1),
+        ( 0, 1, 0)
+    ))
+
+
     wm = bpy.context.window_manager
     wm.progress_begin(0, vertex_count*frame_count)
     start_of_frame = 1
@@ -245,7 +253,11 @@ def get_vertex_data(data, meshes, vertex_count, frame_count):
         me.calc_tangents()
         for v in me.vertices:
             offset = v.co - original[v.index].co
-            offsets[start_of_frame+v.index] = (*offset, 1)
+            if yup_flag:
+                transformed_offset = R @ offset
+            else:
+                transformed_offset = offset
+            offsets[start_of_frame+v.index] = (*transformed_offset, 1)
 
 
         
@@ -266,7 +278,11 @@ def get_vertex_data(data, meshes, vertex_count, frame_count):
                 M = mathutils.Matrix((N,T,B))
 
                 rot = M.inverted() @ M0
-                quat = rot.to_quaternion()
+                if yup_flag:
+                    transformed_rot = R @ rot @ R.inverted()
+                else:
+                    transformed_rot = rot
+                quat = transformed_rot.to_quaternion()
             else:
                 A = l0.normal
                 B = l.normal
@@ -351,7 +367,7 @@ def exportImage(my_image, output_path):
 
     my_image.save_render(output_path) # save to desination
 
-def exportMesh(my_mesh, file_path):
+def exportMesh(my_mesh, file_path, yup_flag):
     file_path = bpy.path.abspath(file_path)
 
     # Store selection and then deselect everything
@@ -414,6 +430,11 @@ def exportMesh(my_mesh, file_path):
         "bake_anim_simplify_factor": 1.0,  # Keyframe reduction
         "use_metadata": True,
     }
+    if yup_flag:
+        export_settings.update({
+            "axis_forward": '-Z',
+            "axis_up": 'Y'
+        })
 
     # Export the selected objects as an FBX file with the specified settings
     bpy.ops.export_scene.fbx(**export_settings)
@@ -510,7 +531,8 @@ class OBJECT_OT_ProcessAnimMeshes(bpy.types.Operator):
         cleanup(objects)   
 
         # Create VAT as linear array
-        offsets, normals = get_vertex_data(data, meshes, vertex_count, frame_count)
+        offsets, normals = get_vertex_data(data, meshes, vertex_count, frame_count, 
+                                           context.scene.sansar_vat_settings.coordinate_frame == 'Yup')
         num_elements = len(offsets) // 4  # Total number of pixels
 
         if bpy.context.scene.sansar_vat_settings.zcurve:
@@ -555,7 +577,9 @@ class OBJECT_OT_ProcessAnimMeshes(bpy.types.Operator):
             exportImage(offset_texture, bpy.context.scene.sansar_vat_settings.export_folder+bpy.context.scene.sansar_vat_settings.export_file+'_map.exr')
             exportImage(normal_texture, bpy.context.scene.sansar_vat_settings.export_folder+bpy.context.scene.sansar_vat_settings.export_file+'_normal.exr')
             if bpy.context.scene.sansar_vat_settings.gen_mesh:
-                exportMesh(export_mesh, bpy.context.scene.sansar_vat_settings.export_folder+bpy.context.scene.sansar_vat_settings.export_file+'_mesh.fbx')
+                exportMesh(export_mesh, 
+                           bpy.context.scene.sansar_vat_settings.export_folder+bpy.context.scene.sansar_vat_settings.export_file+'_mesh.fbx',
+                           context.scene.sansar_vat_settings.coordinate_frame == 'Yup')
             exportTarget = bpy.path.abspath(bpy.context.scene.sansar_vat_settings.export_folder+bpy.context.scene.sansar_vat_settings.export_file)
             exportTarget = exportTarget.replace("\\", "/")+"*"
             self.report({'INFO'}, f"Exported VAT files to {exportTarget}")
@@ -601,6 +625,7 @@ class VIEW3D_PT_VertexAnimation(bpy.types.Panel):
         
         layout.prop(scene.sansar_vat_settings, "gen_mesh")
         layout.prop(scene.sansar_vat_settings, "zcurve")
+        layout.prop(scene.sansar_vat_settings, "coordinate_frame")
         layout.prop(scene.sansar_vat_settings, "do_file_export")
         
         if bpy.context.scene.sansar_vat_settings.do_file_export:
@@ -656,6 +681,17 @@ class SansarVATSettings(bpy.types.PropertyGroup):
         name="Encode Map as Z-Curve",
         default=True,
     ) # type: ignore
+    coordinate_frame: bpy.props.EnumProperty(
+        name="Frame",
+        description="Coordinate frame for VAT and fbx export.",
+        items=[
+            ('Yup', "+Y up, -Z forward", "Best for Sansar avatar imports"),
+            ('Zup', "+Z up, -Y forward", "Best for Sansar world editing")
+        ],
+        default='Zup'
+    ) # type: ignore
+    
+    
     
 
 def register():
