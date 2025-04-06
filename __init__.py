@@ -688,7 +688,7 @@ class SansarVATSettings(bpy.types.PropertyGroup):
             ('Yup', "+Y up, -Z forward", "Best for Sansar avatar imports"),
             ('Zup', "+Z up, -Y forward", "Best for Sansar world editing")
         ],
-        default='Zup'
+        default='Yup'
     ) # type: ignore
     
     
