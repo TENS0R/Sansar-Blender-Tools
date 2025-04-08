@@ -25,7 +25,7 @@
 bl_info = {
     "name": "Sansar Vertex Animation",
     "author": "Tensor",
-    "version": (1, 5),
+    "version": (1, 6),
     "blender": (4, 2, 0),
     "location": "View3D > Sidebar > Sansar Tools Tab",
     "description": "A tool for storing per frame vertex data for use in Sansar VAT shader.",
