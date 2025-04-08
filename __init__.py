@@ -237,12 +237,24 @@ def get_vertex_data(data, meshes, vertex_count, frame_count, yup_flag):
     offsets[0] = (vertex_count_MSH, vertex_count_LSH, frame_count_LSH, 1)
     normals[0] = (vertex_count_MSH, vertex_count_LSH, frame_count_LSH, 1)
 
-    # Rotation matrix from (-Y forward, Z up) to (-Z forward, Y up)
-    R = mathutils.Matrix((
-        (-1, 0, 0),
-        ( 0, 0, 1),
-        ( 0, 1, 0)
-    ))
+    if yup_flag=='Zup':
+        R = mathutils.Matrix((
+            ( 1, 0, 0),
+            ( 0, 1, 0),
+            ( 0, 0, 1)
+        ))
+    if yup_flag=="Yup":
+        R = mathutils.Matrix((
+            (-1, 0, 0),
+            ( 0, 0, 1),
+            ( 0, 1, 0)
+        ))
+    if yup_flag=='YupRot':
+        R = mathutils.Matrix((
+            (-1, 0, 0),
+            ( 0,-1, 0),
+            ( 0, 0, 1)
+        ))
 
 
     wm = bpy.context.window_manager
@@ -253,10 +265,7 @@ def get_vertex_data(data, meshes, vertex_count, frame_count, yup_flag):
         me.calc_tangents()
         for v in me.vertices:
             offset = v.co - original[v.index].co
-            if yup_flag:
-                transformed_offset = R @ offset
-            else:
-                transformed_offset = offset
+            transformed_offset = R @ offset
             offsets[start_of_frame+v.index] = (*transformed_offset, 1)
 
 
@@ -430,10 +439,15 @@ def exportMesh(my_mesh, file_path, yup_flag):
         "bake_anim_simplify_factor": 1.0,  # Keyframe reduction
         "use_metadata": True,
     }
-    if yup_flag:
+    if yup_flag=="Yup":
         export_settings.update({
             "axis_forward": '-Z',
             "axis_up": 'Y'
+        })
+    if yup_flag=="YupRot":
+        export_settings.update({
+            "axis_forward": 'Y',
+            "axis_up": 'Z'
         })
 
     # Export the selected objects as an FBX file with the specified settings
@@ -491,7 +505,7 @@ class OBJECT_OT_ProcessAnimMeshes(bpy.types.Operator):
 
         for ob in objects:
             for mod in ob.modifiers:
-                if mod.type not in self.allowed_modifiers and mod.name not in ['Auto Smooth']:
+                if mod.type not in self.allowed_modifiers and mod.name not in ['Auto Smooth','Smooth by Angle']:
                     cleanup(objects)  
                     self.report(
                         {'ERROR'},
@@ -532,7 +546,7 @@ class OBJECT_OT_ProcessAnimMeshes(bpy.types.Operator):
 
         # Create VAT as linear array
         offsets, normals = get_vertex_data(data, meshes, vertex_count, frame_count, 
-                                           context.scene.sansar_vat_settings.coordinate_frame == 'Yup')
+                                           context.scene.sansar_vat_settings.coordinate_frame)
         num_elements = len(offsets) // 4  # Total number of pixels
 
         if bpy.context.scene.sansar_vat_settings.zcurve:
@@ -579,7 +593,7 @@ class OBJECT_OT_ProcessAnimMeshes(bpy.types.Operator):
             if bpy.context.scene.sansar_vat_settings.gen_mesh:
                 exportMesh(export_mesh, 
                            bpy.context.scene.sansar_vat_settings.export_folder+bpy.context.scene.sansar_vat_settings.export_file+'_mesh.fbx',
-                           context.scene.sansar_vat_settings.coordinate_frame == 'Yup')
+                           context.scene.sansar_vat_settings.coordinate_frame)
             exportTarget = bpy.path.abspath(bpy.context.scene.sansar_vat_settings.export_folder+bpy.context.scene.sansar_vat_settings.export_file)
             exportTarget = exportTarget.replace("\\", "/")+"*"
             self.report({'INFO'}, f"Exported VAT files to {exportTarget}")
@@ -685,10 +699,11 @@ class SansarVATSettings(bpy.types.PropertyGroup):
         name="Frame",
         description="Coordinate frame for VAT and fbx export.",
         items=[
-            ('Yup', "+Y up, -Z forward", "Best for Sansar avatar imports"),
-            ('Zup', "+Z up, -Y forward", "Best for Sansar world editing")
+            ('Yup',    "+Y up, -Z forward", "Blender default export"),
+            ('Zup',    "+Z up, -Y forward", "Best for Sansar world editing"),
+            ('YupRot', "+Z up, +Y forward", "Best for Sansar avatar imports"),
         ],
-        default='Yup'
+        default='YupRot'
     ) # type: ignore
     
     
